@@ -3,9 +3,11 @@
 #include <windows.h>
 #include <tchar.h>
 #include <sstream>
+#include <memory>
 
 #include "misc.h"
 #include "high_resolution_timer.h"
+#include "Scene.h"
 
 #ifdef USE_IMGUI
 #include "imgui/imgui.h"
@@ -16,30 +18,8 @@ extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam
 extern ImWchar glyphRangesJapanese[];
 #endif
 
-// UNIT.01
 #include <d3d11.h>
-
-// UNIT.02
-#include "sprite.h"
-
-// UNIT.09
-#include "sprite_batch.h"
-
-// UNIT.10
 #include <wrl.h>
-
-// UNIT.11
-#include "geometric_primitive.h"
-
-// UNIT.13
-#include "static_mesh.h"
-
-// UNIT.17
-#include "skinned_mesh.h"
-
-// UNIT.32
-#include "framebuffer.h"
-#include "fullscreen_quad.h"
 
 CONST LONG SCREEN_WIDTH{ 1280 };
 CONST LONG SCREEN_HEIGHT{ 720 };
@@ -56,11 +36,8 @@ public:
 	Microsoft::WRL::ComPtr<IDXGISwapChain> swap_chain;
 	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> render_target_view;
 	Microsoft::WRL::ComPtr<ID3D11DepthStencilView> depth_stencil_view;
-	
-	std::unique_ptr<sprite> sprites[8];
-	std::unique_ptr<sprite_batch> sprite_batches[8];
 
-	enum class SAMPLER_STATE { POINT, LINEAR, ANISOTROPIC, LINEAR_BORDER_BLACK/*UNIT.32*/, LINEAR_BORDER_WHITE/*UNIT.32*/ };
+	enum class SAMPLER_STATE { POINT, LINEAR, ANISOTROPIC, LINEAR_BORDER_BLACK, LINEAR_BORDER_WHITE };
 	Microsoft::WRL::ComPtr<ID3D11SamplerState> sampler_states[5];
 
 	enum class DEPTH_STATE { ZT_ON_ZW_ON, ZT_ON_ZW_OFF, ZT_OFF_ZW_ON, ZT_OFF_ZW_OFF };
@@ -72,52 +49,21 @@ public:
 	enum class RASTER_STATE { SOLID, WIREFRAME, CULL_NONE, WIREFRAME_CULL_NONE };
 	Microsoft::WRL::ComPtr<ID3D11RasterizerState> rasterizer_states[4];
 
-	struct scene_constants
-	{
-		DirectX::XMFLOAT4X4 view_projection;
-		DirectX::XMFLOAT4 light_direction;
-		// UNIT.16
-		DirectX::XMFLOAT4 camera_position;
-	};
-	// UNIT.32
-	struct parametric_constants
-	{
-		float extraction_threshold{ 0.8f };
-		float gaussian_sigma{ 1.0f };
-		float bloom_intensity{ 1.0f };
-		float exposure{ 1.0f };
-	};
-	parametric_constants parametric_constants;
-
-	Microsoft::WRL::ComPtr<ID3D11Buffer> constant_buffers[8];
-
-	DirectX::XMFLOAT4 camera_position{ 0.0f, 0.0f, -10.0f, 1.0f };
-	DirectX::XMFLOAT4 light_direction{ 0.0f, 0.0f, -1.0f, 0.0f };
-
-	DirectX::XMFLOAT3 translation{ 0, 0, 0 };
-	DirectX::XMFLOAT3 scaling{ 1, 1, 1 };
-	DirectX::XMFLOAT3 rotation{ 0, 0, 0 };
-	DirectX::XMFLOAT4 material_color{ 1 ,1, 1, 1 };
-
-	// UNIT.13
-	std::unique_ptr<static_mesh> static_meshes[8];
-
-	// UNIT.16
-	Microsoft::WRL::ComPtr<ID3D11PixelShader> pixel_shaders[8];
-
-	// UNIT.17
-	std::unique_ptr<skinned_mesh> skinned_meshes[8];
-
-	// UNIT.27
-	float factors[4]{ 0.0f, 121.438332f };
-
-	// UNIT.32
-	std::unique_ptr<framebuffer> framebuffers[8];
-	std::unique_ptr<fullscreen_quad> bit_block_transfer;
-
+	std::unique_ptr<Scene> current_scene;
 
 	framework(HWND hwnd);
 	~framework();
+
+	template <typename T>
+	void change_scene()
+	{
+		if (current_scene)
+		{
+			current_scene->finalize(this);
+		}
+		current_scene = std::make_unique<T>();
+		current_scene->initialize(this);
+	}
 
 	framework(const framework&) = delete;
 	framework& operator=(const framework&) = delete;
@@ -214,8 +160,8 @@ public:
 
 private:
 	bool initialize();
-	void update(float elapsed_time/*Elapsed seconds from last frame*/);
-	void render(float elapsed_time/*Elapsed seconds from last frame*/);
+	void update(float elapsed_time);
+	void render(float elapsed_time);
 	bool uninitialize();
 
 private:
@@ -237,4 +183,3 @@ private:
 		}
 	}
 };
-
