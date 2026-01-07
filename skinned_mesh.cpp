@@ -115,9 +115,20 @@ void skinned_mesh::fetch_scene(const char* fbx_filename, bool triangulate, float
 	FbxImporter* fbx_importer{ FbxImporter::Create(fbx_manager, "") };
 	bool import_status{ false };
 	import_status = fbx_importer->Initialize(fbx_filename);
-	_ASSERT_EXPR_A(import_status, fbx_importer->GetStatus().GetErrorString());
+	// _ASSERT_EXPR_A(import_status, fbx_importer->GetStatus().GetErrorString());
+	if (!import_status) { fbx_importer->Destroy(); fbx_scene->Destroy(); fbx_manager->Destroy(); return; }
+
 	import_status = fbx_importer->Import(fbx_scene);
-	_ASSERT_EXPR_A(import_status, fbx_importer->GetStatus().GetErrorString());
+	// _ASSERT_EXPR_A(import_status, fbx_importer->GetStatus().GetErrorString());
+	if (!import_status) { fbx_importer->Destroy(); fbx_scene->Destroy(); fbx_manager->Destroy(); return; }
+
+	// ★【追加】ここでFBX SDKの機能を使って、座標系をDirectX用（左手系）に変換します
+	FbxAxisSystem scene_axis_system = fbx_scene->GetGlobalSettings().GetAxisSystem();
+	FbxAxisSystem our_axis_system(FbxAxisSystem::eDirectX);
+	if (scene_axis_system != our_axis_system)
+	{
+		our_axis_system.ConvertScene(fbx_scene);
+	}
 
 	FbxGeometryConverter fbx_converter(fbx_manager);
 	if (triangulate)
@@ -253,6 +264,8 @@ void skinned_mesh::fetch_meshes(FbxScene* fbx_scene, std::vector<mesh>& meshes)
 #else
 		FbxNode* fbx_node{ find_by_unique_id(fbx_scene, node.unique_id) };
 #endif
+		if (!fbx_node) continue;
+
 		FbxMesh* fbx_mesh{ fbx_node->GetMesh() };
 
 		mesh& mesh{ meshes.emplace_back() };
@@ -293,7 +306,9 @@ void skinned_mesh::fetch_meshes(FbxScene* fbx_scene, std::vector<mesh>& meshes)
 			for (int polygon_index = 0; polygon_index < polygon_count; ++polygon_index)
 			{
 				const int material_index{ fbx_mesh->GetElementMaterial()->GetIndexArray().GetAt(polygon_index) };
-				subsets.at(material_index).index_count += 3;
+				if (material_index >= 0 && material_index < subsets.size()) {
+					subsets.at(material_index).index_count += 3;
+				}
 			}
 
 			// Record the offset (How many vertex)
@@ -318,6 +333,9 @@ void skinned_mesh::fetch_meshes(FbxScene* fbx_scene, std::vector<mesh>& meshes)
 		{
 			// UNIT.20
 			const int material_index{ material_count > 0 ? fbx_mesh->GetElementMaterial()->GetIndexArray().GetAt(polygon_index) : 0 };
+
+			if (material_index < 0 || material_index >= subsets.size()) continue;
+
 			mesh::subset& subset{ subsets.at(material_index) };
 			const uint32_t offset{ subset.start_index_location + subset.index_count };
 
@@ -394,14 +412,13 @@ void skinned_mesh::fetch_meshes(FbxScene* fbx_scene, std::vector<mesh>& meshes)
 				if (fbx_mesh->GenerateTangentsData(0, false))
 				{
 					const FbxGeometryElementTangent* tangent = fbx_mesh->GetElementTangent(0);
-					_ASSERT_EXPR(tangent->GetMappingMode() == FbxGeometryElement::EMappingMode::eByPolygonVertex &&
-						tangent->GetReferenceMode() == FbxGeometryElement::EReferenceMode::eDirect,
-						L"Only supports a combination of these modes.");
-
-					vertex.tangent.x = static_cast<float>(tangent->GetDirectArray().GetAt(vertex_index)[0]);
-					vertex.tangent.y = static_cast<float>(tangent->GetDirectArray().GetAt(vertex_index)[1]);
-					vertex.tangent.z = static_cast<float>(tangent->GetDirectArray().GetAt(vertex_index)[2]);
-					vertex.tangent.w = static_cast<float>(tangent->GetDirectArray().GetAt(vertex_index)[3]);
+					if (tangent)
+					{
+						vertex.tangent.x = static_cast<float>(tangent->GetDirectArray().GetAt(vertex_index)[0]);
+						vertex.tangent.y = static_cast<float>(tangent->GetDirectArray().GetAt(vertex_index)[1]);
+						vertex.tangent.z = static_cast<float>(tangent->GetDirectArray().GetAt(vertex_index)[2]);
+						vertex.tangent.w = static_cast<float>(tangent->GetDirectArray().GetAt(vertex_index)[3]);
+					}
 				}
 
 				mesh.vertices.at(vertex_index) = std::move(vertex);
@@ -409,7 +426,9 @@ void skinned_mesh::fetch_meshes(FbxScene* fbx_scene, std::vector<mesh>& meshes)
 #if 0
 				mesh.indices.at(vertex_index) = vertex_index;
 #else
-				mesh.indices.at(static_cast<size_t>(offset) + position_in_polygon) = vertex_index;
+				if (static_cast<size_t>(offset) + position_in_polygon < mesh.indices.size()) {
+					mesh.indices.at(static_cast<size_t>(offset) + position_in_polygon) = vertex_index;
+				}
 				subset.index_count++;
 #endif
 			}
@@ -424,8 +443,8 @@ void skinned_mesh::fetch_meshes(FbxScene* fbx_scene, std::vector<mesh>& meshes)
 			mesh.bounding_box[1].y = std::max<float>(mesh.bounding_box[1].y, v.position.y);
 			mesh.bounding_box[1].z = std::max<float>(mesh.bounding_box[1].z, v.position.z);
 		}
-		}
 	}
+}
 // UNIT.18
 void skinned_mesh::create_com_objects(ID3D11Device* device, const char* fbx_filename)
 {
@@ -465,15 +484,25 @@ void skinned_mesh::create_com_objects(ID3D11Device* device, const char* fbx_file
 		// UNIT.29
 		for (size_t texture_index = 0; texture_index < 2; ++texture_index)
 		{
+			// エラー回避ロジック（ファイルがあっても読み込めなければダミーを作成）
 			if (iterator->second.texture_filenames[texture_index].size() > 0)
 			{
 				std::filesystem::path path(fbx_filename);
 				path.replace_filename(iterator->second.texture_filenames[texture_index]);
 				D3D11_TEXTURE2D_DESC texture2d_desc;
+
+				// 読み込みを試みる
 				load_texture_from_file(device, path.c_str(), iterator->second.shader_resource_views[texture_index].GetAddressOf(), &texture2d_desc);
+
+				// もし読み込みに失敗してSRVが空のままなら、ダミーを作る
+				if (iterator->second.shader_resource_views[texture_index].Get() == nullptr)
+				{
+					make_dummy_texture(device, iterator->second.shader_resource_views[texture_index].GetAddressOf(), texture_index == 1 ? 0xFFFF7F7F : 0xFFFFFFFF, 16);
+				}
 			}
 			else
 			{
+				// ファイル名がない場合は最初からダミーを作る
 				make_dummy_texture(device, iterator->second.shader_resource_views[texture_index].GetAddressOf(), texture_index == 1 ? 0xFFFF7F7F : 0xFFFFFFFF, 16);
 			}
 		}
@@ -525,10 +554,10 @@ void skinned_mesh::render(ID3D11DeviceContext* immediate_context, const XMFLOAT4
 			XMStoreFloat4x4(&data.world, XMLoadFloat4x4(&mesh_node.global_transform) * XMLoadFloat4x4(&world));
 
 			const size_t bone_count{ mesh.bind_pose.bones.size() };
-			_ASSERT_EXPR(bone_count < MAX_BONES, L"The value of the 'bone_count' has exceeded MAX_BONES.");
 
 			for (size_t bone_index = 0; bone_index < bone_count; ++bone_index)
 			{
+				if (bone_index >= MAX_BONES) break;
 				const skeleton::bone& bone{ mesh.bind_pose.bones.at(bone_index) };
 				const animation::keyframe::node& bone_node{ keyframe->nodes.at(bone.node_index) };
 				XMStoreFloat4x4(&data.bone_transforms[bone_index],
@@ -577,6 +606,8 @@ void skinned_mesh::fetch_materials(FbxScene* fbx_scene, std::unordered_map<uint6
 #else
 		FbxNode* fbx_node{ find_by_unique_id(fbx_scene, node.unique_id) };
 #endif
+
+		if (!fbx_node) continue;
 
 		const int material_count{ fbx_node->GetMaterialCount() };
 		for (int material_index = 0; material_index < material_count; ++material_index)

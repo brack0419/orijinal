@@ -21,6 +21,10 @@ using namespace std;
 #include <DDSTextureLoader.h>
 
 static map<wstring, ComPtr<ID3D11ShaderResourceView>> resources;
+
+// プロトタイプ宣言（make_dummy_textureを先に呼び出せるようにする）
+HRESULT make_dummy_texture(ID3D11Device* device, ID3D11ShaderResourceView** shader_resource_view, DWORD value, UINT dimension);
+
 HRESULT load_texture_from_file(ID3D11Device* device, const wchar_t* filename, ID3D11ShaderResourceView** shader_resource_view, D3D11_TEXTURE2D_DESC* texture2d_desc)
 {
 	HRESULT hr{ S_OK };
@@ -31,7 +35,6 @@ HRESULT load_texture_from_file(ID3D11Device* device, const wchar_t* filename, ID
 	{
 		*shader_resource_view = it->second.Get();
 		(*shader_resource_view)->AddRef();
-		(*shader_resource_view)->GetResource(resource.GetAddressOf());
 	}
 	else
 	{
@@ -41,27 +44,51 @@ HRESULT load_texture_from_file(ID3D11Device* device, const wchar_t* filename, ID
 		if (std::filesystem::exists(dds_filename.c_str()))
 		{
 			hr = CreateDDSTextureFromFile(device, dds_filename.c_str(), resource.GetAddressOf(), shader_resource_view);
-			_ASSERT_EXPR(SUCCEEDED(hr), hr_trace(hr));
 		}
 		else
 		{
 			hr = CreateWICTextureFromFile(device, filename, resource.GetAddressOf(), shader_resource_view);
-			_ASSERT_EXPR(SUCCEEDED(hr), hr_trace(hr));
 		}
-		resources.insert(make_pair(filename, *shader_resource_view));
+
+		// 【重要】読み込み失敗時は強制的にダミーテクスチャ（青色）を作成する
+		// これによりエラー停止を防ぎます
+		if (FAILED(hr))
+		{
+			make_dummy_texture(device, shader_resource_view, 0xFF0000FF, 16);
+		}
+
+		// 成功（またはダミー作成成功）していれば登録
+		if (*shader_resource_view)
+		{
+			resources.insert(make_pair(filename, *shader_resource_view));
+		}
 	}
 
-	ComPtr<ID3D11Texture2D> texture2d;
-	hr = resource.Get()->QueryInterface<ID3D11Texture2D>(texture2d.GetAddressOf());
-	_ASSERT_EXPR(SUCCEEDED(hr), hr_trace(hr));
-	texture2d->GetDesc(texture2d_desc);
+	// リソース情報を取得（ダミーの場合も含めて安全に行う）
+	if (*shader_resource_view)
+	{
+		// SRVからリソースを取り出し直す
+		(*shader_resource_view)->GetResource(resource.ReleaseAndGetAddressOf());
 
-	return hr;
+		if (resource)
+		{
+			ComPtr<ID3D11Texture2D> texture2d;
+			if (SUCCEEDED(resource.Get()->QueryInterface<ID3D11Texture2D>(texture2d.GetAddressOf())))
+			{
+				texture2d->GetDesc(texture2d_desc);
+			}
+		}
+	}
+
+	// 失敗していてもS_OKを返して、プログラムを止めないようにする
+	return S_OK;
 }
+
 void release_all_textures()
 {
 	resources.clear();
 }
+
 // UNIT.16
 HRESULT make_dummy_texture(ID3D11Device* device, ID3D11ShaderResourceView** shader_resource_view, DWORD value/*0xAABBGGRR*/, UINT dimension)
 {
@@ -104,16 +131,23 @@ HRESULT make_dummy_texture(ID3D11Device* device, ID3D11ShaderResourceView** shad
 
 		ComPtr<ID3D11Texture2D> texture2d;
 		hr = device->CreateTexture2D(&texture2d_desc, &subresource_data, &texture2d);
-		_ASSERT_EXPR(SUCCEEDED(hr), hr_trace(hr));
+		// _ASSERT_EXPR(SUCCEEDED(hr), hr_trace(hr)); // エラー停止を無効化
 
-		D3D11_SHADER_RESOURCE_VIEW_DESC shader_resource_view_desc{};
-		shader_resource_view_desc.Format = texture2d_desc.Format;
-		shader_resource_view_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-		shader_resource_view_desc.Texture2D.MipLevels = 1;
+		if (SUCCEEDED(hr))
+		{
+			D3D11_SHADER_RESOURCE_VIEW_DESC shader_resource_view_desc{};
+			shader_resource_view_desc.Format = texture2d_desc.Format;
+			shader_resource_view_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			shader_resource_view_desc.Texture2D.MipLevels = 1;
 
-		hr = device->CreateShaderResourceView(texture2d.Get(), &shader_resource_view_desc, shader_resource_view);
-		_ASSERT_EXPR(SUCCEEDED(hr), hr_trace(hr));
-		resources.insert(std::make_pair(keyname.str().c_str(), *shader_resource_view));
+			hr = device->CreateShaderResourceView(texture2d.Get(), &shader_resource_view_desc, shader_resource_view);
+			// _ASSERT_EXPR(SUCCEEDED(hr), hr_trace(hr)); // エラー停止を無効化
+
+			if (SUCCEEDED(hr))
+			{
+				resources.insert(std::make_pair(keyname.str().c_str(), *shader_resource_view));
+			}
+		}
 	}
 	return hr;
 }

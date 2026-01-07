@@ -281,7 +281,7 @@ bool framework::initialize()
 	//skinned_meshes[0] = std::make_unique<skinned_mesh>(device.Get(), ".\\resources\\danbo_fbx\\danbo_fly.fbx");
 	//skinned_meshes[0] = std::make_unique<skinned_mesh>(device.Get(), ".\\resources\\danbo_fbx\\danbo_atk.fbx");
 	//skinned_meshes[0] = std::make_unique<skinned_mesh>(device.Get(), ".\\resources\\nico.fbx");
-skinned_meshes[0] = std::make_unique<skinned_mesh>(device.Get(), ".\\resources\\plantune.fbx");
+//skinned_meshes[0] = std::make_unique<skinned_mesh>(device.Get(), ".\\resources\\plantune.fbx");
 	//skinned_meshes[0] = std::make_unique<skinned_mesh>(device.Get(), ".\\resources\\latha.fbx");
 
 	// UNIT.26
@@ -296,8 +296,10 @@ skinned_meshes[0] = std::make_unique<skinned_mesh>(device.Get(), ".\\resources\\
 	skinned_meshes[0] = std::make_unique<skinned_mesh>(device.Get(), ".\\resources\\Jummo\\Jummo.fbx", animation_filenames);*/
 
 	//// UNIT.32
-	skinned_meshes[0] = std::make_unique<skinned_mesh>(device.Get(), ".\\resources\\nico.fbx", true);
+	//skinned_meshes[0] = std::make_unique<skinned_mesh>(device.Get(), ".\\resources\\nico.fbx", true);
 	sprite_batches[0] = std::make_unique<sprite_batch>(device.Get(), L".\\resources\\screenshot.jpg", 1);
+
+	skinned_meshes[0] = std::make_unique<skinned_mesh>(device.Get(), ".\\resources\\anis.fbx");
 
 	framebuffers[0] = std::make_unique<framebuffer>(device.Get(), 1280, 720);
 	framebuffers[1] = std::make_unique<framebuffer>(device.Get(), 1280 / 2, 720 / 2);

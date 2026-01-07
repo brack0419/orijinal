@@ -246,7 +246,7 @@ public:
 			archive(position, normal, tangent, texcoord, bone_weights, bone_indices);
 		}
 	};
-	static const int MAX_BONES{ 256 }; // UNIT.23
+	static const int MAX_BONES{ 1546 }; // UNIT.23
 	struct constants
 	{
 		DirectX::XMFLOAT4X4 world;
