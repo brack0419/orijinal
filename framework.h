@@ -8,6 +8,7 @@
 #include "misc.h"
 #include "high_resolution_timer.h"
 #include "Scene.h"
+#include "ResourceManager.h" // ’Ç‰Á
 
 #ifdef USE_IMGUI
 #include "imgui/imgui.h"
@@ -50,6 +51,7 @@ public:
 	Microsoft::WRL::ComPtr<ID3D11RasterizerState> rasterizer_states[4];
 
 	std::unique_ptr<Scene> current_scene;
+	std::unique_ptr<ResourceManager> resource_manager; // ’Ç‰Á
 
 	framework(HWND hwnd);
 	~framework();

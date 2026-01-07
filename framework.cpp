@@ -196,6 +196,9 @@ bool framework::initialize()
 	hr = device->CreateRasterizerState(&rasterizer_desc, rasterizer_states[static_cast<size_t>(RASTER_STATE::WIREFRAME_CULL_NONE)].GetAddressOf());
 	_ASSERT_EXPR(SUCCEEDED(hr), hr_trace(hr));
 
+	// ★ ResourceManagerの初期化
+	resource_manager = std::make_unique<ResourceManager>(device.Get());
+
 	// 最初のシーンを開始
 	change_scene<GameScene>();
 

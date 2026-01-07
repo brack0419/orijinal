@@ -18,7 +18,6 @@ void GameScene::initialize(framework* fw)
 	HRESULT hr{ S_OK };
 	ID3D11Device* device = fw->device.Get();
 
-	// 定数バッファの作成
 	D3D11_BUFFER_DESC buffer_desc{};
 	buffer_desc.ByteWidth = sizeof(scene_constants);
 	buffer_desc.Usage = D3D11_USAGE_DEFAULT;
@@ -41,9 +40,9 @@ void GameScene::initialize(framework* fw)
 	// リソースの読み込み
 	sprite_batches[0] = std::make_unique<sprite_batch>(device, L".\\resources\\screenshot.jpg", 1);
 
-	// ★ ここが変更点：GameObjectの生成
-	// モデルを読み込んで（shared_ptr）、それをGameObjectに渡す
-	auto mesh = std::make_shared<skinned_mesh>(device, ".\\resources\\anis.fbx");
+	// ★ リソースマネージャーを使ってモデルをロード
+	// これにより、もし別のキャラが同じモデルを使っていても、メモリは1つ分で済みます！
+	auto mesh = fw->resource_manager->load_skinned_mesh(".\\resources\\anis.fbx");
 	player = std::make_unique<GameObject>(mesh);
 
 	framebuffers[0] = std::make_unique<framebuffer>(device, 1280, 720);
@@ -56,7 +55,6 @@ void GameScene::initialize(framework* fw)
 
 void GameScene::update(framework* fw, float elapsed_time)
 {
-	// ★ GameObjectの更新
 	if (player)
 	{
 		player->update(elapsed_time);
@@ -73,7 +71,6 @@ void GameScene::update(framework* fw, float elapsed_time)
 	ImGui::SliderFloat("light_direction.y", &light_direction.y, -1.0f, +1.0f);
 	ImGui::SliderFloat("light_direction.z", &light_direction.z, -1.0f, +1.0f);
 
-	// ★ GameObjectの変数をImGuiで操作
 	if (player)
 	{
 		ImGui::Text("Player Transform");
@@ -120,7 +117,6 @@ void GameScene::render(framework* fw, float elapsed_time)
 	context->ClearRenderTargetView(fw->render_target_view.Get(), color);
 	context->OMSetRenderTargets(1, fw->render_target_view.GetAddressOf(), fw->depth_stencil_view.Get());
 
-	// サンプラー設定などはfwから借りる
 	context->PSSetSamplers(0, 1, fw->sampler_states[static_cast<size_t>(framework::SAMPLER_STATE::POINT)].GetAddressOf());
 	context->PSSetSamplers(1, 1, fw->sampler_states[static_cast<size_t>(framework::SAMPLER_STATE::LINEAR)].GetAddressOf());
 	context->PSSetSamplers(2, 1, fw->sampler_states[static_cast<size_t>(framework::SAMPLER_STATE::ANISOTROPIC)].GetAddressOf());
@@ -158,7 +154,6 @@ void GameScene::render(framework* fw, float elapsed_time)
 	framebuffers[0]->clear(context);
 	framebuffers[0]->activate(context);
 
-	// スプライト描画
 	context->OMSetDepthStencilState(fw->depth_stencil_states[static_cast<size_t>(framework::DEPTH_STATE::ZT_OFF_ZW_OFF)].Get(), 0);
 	context->RSSetState(fw->rasterizer_states[static_cast<size_t>(framework::RASTER_STATE::CULL_NONE)].Get());
 	sprite_batches[0]->begin(context);
@@ -168,8 +163,7 @@ void GameScene::render(framework* fw, float elapsed_time)
 	context->OMSetDepthStencilState(fw->depth_stencil_states[static_cast<size_t>(framework::DEPTH_STATE::ZT_ON_ZW_ON)].Get(), 0);
 	context->RSSetState(fw->rasterizer_states[static_cast<size_t>(framework::RASTER_STATE::SOLID)].Get());
 
-	// ★ GameObjectの描画
-	// 行列計算などはGameObjectクラス内に隠蔽されました
+	// GameObjectの描画
 	if (player)
 	{
 		player->render(context);
