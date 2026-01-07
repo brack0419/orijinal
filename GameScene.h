@@ -1,6 +1,9 @@
 #pragma once
 #include "Scene.h"
+#include "GameObject.h" // 追加
+
 #include <memory>
+#include <vector>
 #include <d3d11.h>
 #include <wrl.h>
 #include <directxmath.h>
@@ -46,16 +49,21 @@ private:
 	DirectX::XMFLOAT4 camera_position{ 0.0f, 0.0f, -10.0f, 1.0f };
 	DirectX::XMFLOAT4 light_direction{ 0.0f, 0.0f, -1.0f, 0.0f };
 
-	DirectX::XMFLOAT3 translation{ 0, 0, 0 };
-	DirectX::XMFLOAT3 scaling{ 1, 1, 1 };
-	DirectX::XMFLOAT3 rotation{ 0, 0, 0 };
-	DirectX::XMFLOAT4 material_color{ 1 ,1, 1, 1 };
+	// ★ ここが変更点：GameObjectの導入
+	std::unique_ptr<GameObject> player;
+	// 将来的には std::vector<std::unique_ptr<GameObject>> enemies; などもここに追加できます
 
 	std::unique_ptr<sprite> sprites[8];
 	std::unique_ptr<sprite_batch> sprite_batches[8];
+
+	// static_mesh等は必要に応じてGameObject化するか、背景用として残す
 	std::unique_ptr<static_mesh> static_meshes[8];
+
 	Microsoft::WRL::ComPtr<ID3D11PixelShader> pixel_shaders[8];
-	std::unique_ptr<skinned_mesh> skinned_meshes[8];
+
+	// skinned_meshes は GameObject 内で管理されるのでここからは削除可能ですが、
+	// リソース保持用として ResourceManager を作るまでは一旦残しておいても可。
+	// 今回は簡単のため、GameObject生成時に直接読み込ませます。
 
 	float factors[4]{ 0.0f, 121.438332f };
 

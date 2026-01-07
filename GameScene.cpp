@@ -18,6 +18,7 @@ void GameScene::initialize(framework* fw)
 	HRESULT hr{ S_OK };
 	ID3D11Device* device = fw->device.Get();
 
+	// 定数バッファの作成
 	D3D11_BUFFER_DESC buffer_desc{};
 	buffer_desc.ByteWidth = sizeof(scene_constants);
 	buffer_desc.Usage = D3D11_USAGE_DEFAULT;
@@ -39,7 +40,11 @@ void GameScene::initialize(framework* fw)
 
 	// リソースの読み込み
 	sprite_batches[0] = std::make_unique<sprite_batch>(device, L".\\resources\\screenshot.jpg", 1);
-	skinned_meshes[0] = std::make_unique<skinned_mesh>(device, ".\\resources\\anis.fbx");
+
+	// ★ ここが変更点：GameObjectの生成
+	// モデルを読み込んで（shared_ptr）、それをGameObjectに渡す
+	auto mesh = std::make_shared<skinned_mesh>(device, ".\\resources\\anis.fbx");
+	player = std::make_unique<GameObject>(mesh);
 
 	framebuffers[0] = std::make_unique<framebuffer>(device, 1280, 720);
 	framebuffers[1] = std::make_unique<framebuffer>(device, 1280 / 2, 720 / 2);
@@ -51,6 +56,12 @@ void GameScene::initialize(framework* fw)
 
 void GameScene::update(framework* fw, float elapsed_time)
 {
+	// ★ GameObjectの更新
+	if (player)
+	{
+		player->update(elapsed_time);
+	}
+
 #ifdef USE_IMGUI
 	ImGui::Begin("ImGUI");
 
@@ -62,20 +73,26 @@ void GameScene::update(framework* fw, float elapsed_time)
 	ImGui::SliderFloat("light_direction.y", &light_direction.y, -1.0f, +1.0f);
 	ImGui::SliderFloat("light_direction.z", &light_direction.z, -1.0f, +1.0f);
 
-	ImGui::SliderFloat("translation.x", &translation.x, -10.0f, +10.0f);
-	ImGui::SliderFloat("translation.y", &translation.y, -10.0f, +10.0f);
-	ImGui::SliderFloat("translation.z", &translation.z, -10.0f, +10.0f);
+	// ★ GameObjectの変数をImGuiで操作
+	if (player)
+	{
+		ImGui::Text("Player Transform");
+		ImGui::SliderFloat("Translation X", &player->position.x, -10.0f, +10.0f);
+		ImGui::SliderFloat("Translation Y", &player->position.y, -10.0f, +10.0f);
+		ImGui::SliderFloat("Translation Z", &player->position.z, -10.0f, +10.0f);
 
-	ImGui::SliderFloat("scaling.x", &scaling.x, -10.0f, +10.0f);
-	ImGui::SliderFloat("scaling.y", &scaling.y, -10.0f, +10.0f);
-	ImGui::SliderFloat("scaling.z", &scaling.z, -10.0f, +10.0f);
+		ImGui::SliderFloat("Rotation X", &player->rotation.x, -10.0f, +10.0f);
+		ImGui::SliderFloat("Rotation Y", &player->rotation.y, -10.0f, +10.0f);
+		ImGui::SliderFloat("Rotation Z", &player->rotation.z, -10.0f, +10.0f);
 
-	ImGui::SliderFloat("rotation.x", &rotation.x, -10.0f, +10.0f);
-	ImGui::SliderFloat("rotation.y", &rotation.y, -10.0f, +10.0f);
-	ImGui::SliderFloat("rotation.z", &rotation.z, -10.0f, +10.0f);
+		ImGui::SliderFloat("Scale X", &player->scale.x, 0.1f, 5.0f);
+		ImGui::SliderFloat("Scale Y", &player->scale.y, 0.1f, 5.0f);
+		ImGui::SliderFloat("Scale Z", &player->scale.z, 0.1f, 5.0f);
 
-	ImGui::ColorEdit4("material_color", reinterpret_cast<float*>(&material_color));
+		ImGui::ColorEdit4("Material Color", reinterpret_cast<float*>(&player->color));
+	}
 
+	ImGui::Separator();
 	ImGui::SliderFloat("factors[0]", &factors[0], -1.5f, +1.5f);
 	ImGui::SliderFloat("factors[1]", &factors[1], +0.0f, +500.0f);
 	ImGui::SliderFloat("factors[2]", &factors[2], +0.0f, +1.0f);
@@ -103,6 +120,7 @@ void GameScene::render(framework* fw, float elapsed_time)
 	context->ClearRenderTargetView(fw->render_target_view.Get(), color);
 	context->OMSetRenderTargets(1, fw->render_target_view.GetAddressOf(), fw->depth_stencil_view.Get());
 
+	// サンプラー設定などはfwから借りる
 	context->PSSetSamplers(0, 1, fw->sampler_states[static_cast<size_t>(framework::SAMPLER_STATE::POINT)].GetAddressOf());
 	context->PSSetSamplers(1, 1, fw->sampler_states[static_cast<size_t>(framework::SAMPLER_STATE::LINEAR)].GetAddressOf());
 	context->PSSetSamplers(2, 1, fw->sampler_states[static_cast<size_t>(framework::SAMPLER_STATE::ANISOTROPIC)].GetAddressOf());
@@ -140,6 +158,7 @@ void GameScene::render(framework* fw, float elapsed_time)
 	framebuffers[0]->clear(context);
 	framebuffers[0]->activate(context);
 
+	// スプライト描画
 	context->OMSetDepthStencilState(fw->depth_stencil_states[static_cast<size_t>(framework::DEPTH_STATE::ZT_OFF_ZW_OFF)].Get(), 0);
 	context->RSSetState(fw->rasterizer_states[static_cast<size_t>(framework::RASTER_STATE::CULL_NONE)].Get());
 	sprite_batches[0]->begin(context);
@@ -149,47 +168,11 @@ void GameScene::render(framework* fw, float elapsed_time)
 	context->OMSetDepthStencilState(fw->depth_stencil_states[static_cast<size_t>(framework::DEPTH_STATE::ZT_ON_ZW_ON)].Get(), 0);
 	context->RSSetState(fw->rasterizer_states[static_cast<size_t>(framework::RASTER_STATE::SOLID)].Get());
 
-	const DirectX::XMFLOAT4X4 coordinate_system_transforms[]{
-		{ -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 },
-		{ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 },
-		{ -1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1 },
-		{ 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1 },
-	};
-	const float scale_factor = 0.01f;
-	DirectX::XMMATRIX C{ DirectX::XMLoadFloat4x4(&coordinate_system_transforms[0]) * DirectX::XMMatrixScaling(scale_factor, scale_factor, scale_factor) };
-
-	DirectX::XMMATRIX S{ DirectX::XMMatrixScaling(scaling.x, scaling.y, scaling.z) };
-	DirectX::XMMATRIX R{ DirectX::XMMatrixRotationRollPitchYaw(rotation.x, rotation.y, rotation.z) };
-	DirectX::XMMATRIX T{ DirectX::XMMatrixTranslation(translation.x, translation.y, translation.z) };
-	DirectX::XMFLOAT4X4 world;
-	DirectX::XMStoreFloat4x4(&world, C * S * R * T);
-
-	if (skinned_meshes[0])
+	// ★ GameObjectの描画
+	// 行列計算などはGameObjectクラス内に隠蔽されました
+	if (player)
 	{
-		int clip_index{ 0 };
-		int frame_index{ 0 };
-		static float animation_tick{ 0 };
-
-		if (!skinned_meshes[0]->animation_clips.empty())
-		{
-			animation& animation{ skinned_meshes[0]->animation_clips.at(clip_index) };
-			frame_index = static_cast<int>(animation_tick * animation.sampling_rate);
-			if (frame_index > animation.sequence.size() - 1)
-			{
-				frame_index = 0;
-				animation_tick = 0;
-			}
-			else
-			{
-				animation_tick += elapsed_time;
-			}
-			animation::keyframe& keyframe{ animation.sequence.at(frame_index) };
-			skinned_meshes[0]->render(context, world, material_color, &keyframe);
-		}
-		else
-		{
-			skinned_meshes[0]->render(context, world, material_color, nullptr);
-		}
+		player->render(context);
 	}
 
 	framebuffers[0]->deactivate(context);
@@ -210,5 +193,4 @@ void GameScene::render(framework* fw, float elapsed_time)
 
 void GameScene::finalize(framework* fw)
 {
-	// 必要ならリソース解放処理
 }
